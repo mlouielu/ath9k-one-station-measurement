@@ -6,6 +6,9 @@ from matplotlib.font_manager import FontProperties
 from matplotlib import pyplot as plt
 
 
+SECONDS = '30s'
+
+
 def check_if_exist(path, sub):
     counter = 0
     path_t = f'{path}_{counter}{sub}'
@@ -19,7 +22,7 @@ def main(subtitle):
     output_path = subtitle.replace(' ', '').replace('/', '_').strip()
     output_path = check_if_exist('data/' + output_path, '.json.gz')
     output = subprocess.check_output(['irtt', 'client', '-i', '10ms', '-l', '100',
-                                      '-d', '3s', '--fill=rand', '--sfill=rand',
+                                      '-d', SECONDS, '--fill=rand', '--sfill=rand',
                                       '192.168.5.88', '-o', output_path]).decode('utf-8')
     ends = False
     rtts = []
@@ -38,10 +41,10 @@ def main(subtitle):
             rtt = i.split()[1].split('=')[-1]
             if rtt.endswith('ms'):
                 rtt = float(rtt.strip('ms'))
-            elif rtt.endswith('us'):
-                rtt = float(rtt.strip('us')) / 1000.0
+            elif rtt.endswith('µs'):
+                rtt = float(rtt.strip('µs')) / 1000.0
             else:
-                raise ValueError(f'Not ms/us {rtt}')
+                raise ValueError(f'Not ms/µs {rtt}')
             rtts.append(rtt)
 
     rtts.sort()
@@ -52,7 +55,8 @@ def main(subtitle):
     font.set_family('monospace')
     plt.hist(rtts, len(set(rtts)), density=True, cumulative=True, label='CDF', histtype='step')
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    plt.text(sorted(list(set(rtts)))[-1] - 0.6, 0.2, '\n'.join(rtts_text), fontsize=10,
+    plt.xlim((1, 10))
+    plt.text(7, 0.2, '\n'.join(rtts_text), fontsize=10,
              bbox=props, verticalalignment='center', fontproperties=font)
     plt.title(f'RTT of 100 bytes UDP packets within 30 seconds\n{subtitle}')
     plt.savefig(f'{output_path}.jpg')
