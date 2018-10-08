@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import math
@@ -18,12 +19,12 @@ def check_if_exist(path, sub):
     return f'{path}_{counter}'
 
 
-def main(subtitle):
+def main(subtitle, host):
     output_path = subtitle.replace(' ', '').replace('/', '_').strip()
     output_path = check_if_exist('data/' + output_path, '.json.gz')
     output = subprocess.check_output(['irtt', 'client', '-i', '10ms', '-l', '100',
                                       '-d', SECONDS, '--fill=rand', '--sfill=rand',
-                                      '192.168.5.88', '-o', output_path]).decode('utf-8')
+                                      host, '-o', output_path]).decode('utf-8')
     ends = False
     rtts = []
     rtts_text = []
@@ -62,6 +63,16 @@ def main(subtitle):
     plt.savefig(f'{output_path}.jpg')
 
 
+def get_parser():
+    parser = argparse.ArgumentParser(description='Measure RTT')
+    parser.add_argument('host', type=str, help='Target host to measure RTT')
+    parser.add_argument('--title', type=str, help='Title of the test')
+    parser.add_argument('--time', default=30, help='duration of the test')
+
+    return parser
+
+
 if __name__ == '__main__':
-    main(sys.argv[1])
+    args = get_parser().parse_args()
+    main(args.title, args.host)
 
