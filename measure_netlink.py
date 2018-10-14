@@ -1,3 +1,4 @@
+#!/usr/bin/pypy3
 import atexit
 import socket
 import statistics
