@@ -18,46 +18,60 @@ from matplotlib import pyplot as plt
 NETLINK_NEMS_ATH9K = 31
 NETLINK_NEMS_ATH9K_GROUP = 32
 NETLINK_BUF_LENGTH = 128
-TIMEOUT = 3
+TIMEOUT = 5
 sock = None
 
 # IRTT Settings
 SECONDS = '30s'
 arp_regex = r'(\b(?:\d{1,3}\.){3}\d{1,3}\b)|(\b([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})\b)'
 
-
 # Matplotlib Settings
 font = FontProperties()
 font.set_family('monospace')
 font.set_size('small')
+
+# Which diff
+DIFF_BY_ENQ = True
 
 
 def cleanup_sock():
     sock.close()
 
 
-def check_if_exist(path, sub):
+def check_if_exist(path, sub, prefix=None):
     counter = 0
-    path_t = f'{path}_{counter}{sub}'
+    if prefix:
+        path_t = f'{prefix}{path}_{counter}{sub}'
+    else:
+        path_t = f'{path}_{counter}{sub}'
     while os.path.exists(path_t):
         counter += 1
-        path_t = f'{path}_{counter}{sub}'
+        if prefix:
+            path_t = f'{prefix}{path}_{counter}{sub}'
+        else:
+            path_t = f'{path}_{counter}{sub}'
     return f'{path}_{counter}'
 
 
 def calculate_diffs(output: list):
+    enq_timestamps = defaultdict(dict)
     tx_timestamps = defaultdict(dict)
     ack_timestamps = defaultdict(dict)
-    diff_timestamps = defaultdict(list)
+    diff_timestamps = defaultdict(lambda: defaultdict(list))
 
     for i in output:
         addr, seqno, timestamp, mode = i.split('|')
-        if mode == 'tx':
+        if mode == 'enq':
+            enq_timestamps[addr][seqno] = int(timestamp)
+        elif mode == 'tx':
             tx_timestamps[addr][seqno] = int(timestamp)
         elif mode == 'ack':
             ack_timestamps[addr][seqno] = int(timestamp)
+            if seqno in enq_timestamps[addr]:
+                diff_timestamps['enq'][addr].append(
+                   (ack_timestamps[addr][seqno] - enq_timestamps[addr][seqno]) / 1000)
             if seqno in tx_timestamps[addr]:
-                diff_timestamps[addr].append(
+                diff_timestamps['tx'][addr].append(
                     (ack_timestamps[addr][seqno] - tx_timestamps[addr][seqno]) / 1000)
     return diff_timestamps
 
@@ -132,7 +146,8 @@ def do_netlink(subtitle):
         sock.close()
 
     diffs = calculate_diffs(output)
-    do_figure(subtitle, diffs)
+    do_figure('enq_' + subtitle, diffs['enq'])
+    do_figure('tx_' + subtitle, diffs['tx'])
 
 
 def run(args):
@@ -146,7 +161,7 @@ def run(args):
 
 def main(subtitle, hosts):
     output_path = subtitle.replace(' ', '').replace('/', '_').strip()
-    output_path = check_if_exist(output_path, '.png')
+    output_path = check_if_exist(output_path, '.png', prefix='tx_')
     with ProcessPoolExecutor(max_workers=len(hosts)) as executor:
         for host in hosts:
             executor.submit(run, (subtitle, host))
