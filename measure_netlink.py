@@ -18,13 +18,14 @@ from matplotlib import pyplot as plt
 # Netlink Settings
 NETLINK_NEMS_ATH9K = 31
 NETLINK_NEMS_ATH9K_GROUP = 32
-NETLINK_BUF_LENGTH = 128
+NETLINK_BUF_LENGTH = 64
 TIMEOUT = 2
 sock = None
 epoll = None
 
 # IRTT Settings
-SECONDS = '15s'
+SECONDS = '20s'
+DSCP = '0xE0'
 arp_regex = r'(\b(?:\d{1,3}\.){3}\d{1,3}\b)|(\b([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})\b)'
 
 # Matplotlib Settings
@@ -34,7 +35,9 @@ font.set_size('small')
 COLOR_PATTLE = {
     '192.168.5.41': 'blue',
     '192.168.5.42': 'green',
-    '192.168.5.43': 'red'
+    '192.168.5.43': 'red',
+    '192.168.5.16': 'orange',
+    '192.168.5.17': 'purple'
 }
 
 # Which diff
@@ -72,7 +75,14 @@ def calculate_diffs(output: list):
 
     for i in output:
         addr, seqno, timestamp, mode = i.split('|')
-        if mode == 'enq':
+        if mode == 'hit1':
+            round = int(seqno)
+            now = int(timestamp)
+            diff_timestamps['now'][addr].append(now / 1000)
+        elif mode == 'hit2':
+            left = int(seqno)
+            slot_left = int(timestamp)
+        elif mode == 'enq':
             enq_timestamps[addr][seqno] = int(timestamp)
         elif mode == 'wake':
             wake_timestamps[addr][seqno] = int(timestamp)
@@ -116,30 +126,37 @@ def get_result_text(ip, diff):
         f'median: {statistics.median(diff):.3f}',
         f'max:    {max(diff):.3f}',
         f'stddev: {statistics.stdev(diff):.3f}',
+        f'80th:   {diff[math.ceil(80 / 100 * len(diff))]:.3f}ms',
+        f'90th:   {diff[math.ceil(90 / 100 * len(diff))]:.3f}ms',
         f'95th:   {diff[math.ceil(95 / 100 * len(diff))]:.3f}ms'
     ]
     return texts
 
 
-def do_figure(output_path: str, diffs: dict):
+def do_figure(output_path: str, diffs: dict, cumulative=True):
     arp_table = get_arp_table()
     figure = plt.figure()
     ax1 = figure.add_subplot(211)
     ax2 = figure.add_subplot(212)
     ax2.axis('off')
-    ax1.set_title(f'TX/ACK of 100 bytes UDP packets within 30 seconds\n{output_path}')
+    ax1.set_title(f'TX/ACK of 100 bytes UDP packets within {SECONDS.strip("s")} seconds\n{output_path}')
     #ax1.set_xscale('log')
     #ax1.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
-    ax1.set_xlim((0, 50))
+    if output_path.startswith('aggr'):
+        ax1.set_xlim((0, 10))
+    else:
+        ax1.set_xlim((0, 50))
     #ax1.set_xticks([0, 10, 25, 50])
 
     ip_texts = {}
     for index, host in enumerate(diffs):
+        if len(diffs[host]) < 10:
+            continue
         time_diff = diffs[host]
         ip = arp_table[host]
         print(f'host: {ip}, packets: {len(time_diff)}')
         ax1.hist(time_diff, bins='auto', density=True,
-                 cumulative=True, label=ip, histtype='step',
+                 cumulative=cumulative, label=ip, histtype='step',
                  color=COLOR_PATTLE[ip])
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
         texts = '\n'.join(get_result_text(ip, time_diff))
@@ -154,12 +171,19 @@ def do_figure(output_path: str, diffs: dict):
                 bbox_extra_artists=(legend,), bbox_inches='tight')
 
 
+def save_output(path, raw_output):
+    with open(path, 'w') as f:
+        for i in raw_output:
+            f.write(f'{i}\n')
+
+
 def do_netlink(subtitle):
     global sock, epoll
     sock = socket.socket(socket.AF_NETLINK,
                          socket.SOCK_RAW, NETLINK_NEMS_ATH9K)
     sock.bind((0, 0))
     sock.setsockopt(270, 1, NETLINK_NEMS_ATH9K_GROUP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2 ** 28)
     sock.setblocking(0)
     atexit.register(cleanup_sock)
 
@@ -175,6 +199,7 @@ def do_netlink(subtitle):
                 if event & select.EPOLLIN:
                     b = sock.recvfrom(NETLINK_BUF_LENGTH)[0]
                     b = b[b.find(b'[') + 1: b.find(b']')].decode('utf-8')
+                    #print(b)
                     output.append(b)
     except socket.timeout:
         sock.close()
@@ -183,6 +208,40 @@ def do_netlink(subtitle):
     do_figure('enq_' + subtitle, diffs['enq'])
     do_figure('tx_' + subtitle, diffs['tx'])
     do_figure('aggr_' + subtitle, diffs['aggr'])
+    do_figure('now_' + subtitle, diffs['now'])
+    save_output('output_' + subtitle, output)
+
+
+def draw_figure_from_input(inputs, output_path):
+    arp_table = get_arp_table()
+    figure = plt.figure(figsize=(10, 10))
+    ax1 = figure.add_subplot(211)
+    ax2 = figure.add_subplot(212)
+    ax2.axis('off')
+    ax1.set_title(f'')
+    ax1.set_xlim((0, 50))
+
+    output_texts = {}
+    for i in inputs:
+        with open(i) as f:
+            diffs = calculate_diffs(f.read().strip().split('\n'))['enq']
+        host = 'd4:6e:0e:65:aa:74'
+        time_diff = diffs[host]
+        ip = arp_table[host]
+        ax1.hist(time_diff, bins='auto', density=True,
+                 cumulative=True, label=i, histtype='step')
+
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        texts = '\n'.join([i[i.find('MCS'):i.find('_Bulk')]] + get_result_text(ip, time_diff))
+        output_texts[i] = texts
+
+    for index, i in enumerate(sorted(list(output_texts.keys()))):
+        ax2.text((index % 6) * 0.2, 0.8 if index < 6 else 0.3, output_texts[i], fontsize=10, bbox=props,
+                 verticalalignment='center', fontproperties=font)
+
+    legend = ax1.legend(loc='center left', bbox_to_anchor=(1.04, 0.8))
+    plt.savefig(f'{output_path}.png',
+                bbox_extra_artists=(legend,), bbox_inches='tight')
 
 
 def run(args):
@@ -190,7 +249,7 @@ def run(args):
     subtitle = args[0]
     host = args[1]
     subprocess.Popen(['irtt', 'client', '-i', '10ms', '-l', '100',
-                      '-d', SECONDS, '--fill=rand', '--sfill=rand',
+                      '-d', SECONDS, '--fill=rand', '--sfill=rand', f'--dscp={DSCP}',
                       host], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -205,12 +264,19 @@ def main(subtitle, hosts):
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Measure tx/ack via netlink')
-    parser.add_argument('host', type=str, nargs='+')
+    parser.add_argument('--host', type=str, nargs='+')
     parser.add_argument('--title', type=str)
     parser.add_argument('--time', default=30)
+
+    parser.add_argument('--input', type=str, nargs='+')
+    parser.add_argument('--output', type=str)
     return parser
 
 
 if __name__ == '__main__':
     args = get_parser().parse_args()
-    main(args.title, args.host)
+
+    if args.input:
+        draw_figure_from_input(args.input, args.output)
+    else:
+        main(args.title, args.host)
