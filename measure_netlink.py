@@ -8,7 +8,8 @@ import statistics
 import math
 import os
 import select
-import matplotlib
+import signal
+
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from matplotlib.font_manager import FontProperties
@@ -25,7 +26,7 @@ epoll = None
 
 # IRTT Settings
 SECONDS = '20s'
-DSCP = '0xE0'
+DSCP = '0x0'
 arp_regex = r'(\b(?:\d{1,3}\.){3}\d{1,3}\b)|(\b([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})\b)'
 
 # Matplotlib Settings
@@ -33,6 +34,7 @@ font = FontProperties()
 font.set_family('monospace')
 font.set_size('small')
 COLOR_PATTLE = {
+    '192.168.5.91': 'm',
     '192.168.5.41': 'blue',
     '192.168.5.42': 'green',
     '192.168.5.43': 'red',
@@ -42,6 +44,17 @@ COLOR_PATTLE = {
 
 # Which diff
 DIFF_BY_ENQ = True
+
+# Netlink Loop Enable
+NETLINK_LOOP = False
+
+
+def ctrl_c_signal_handler(signum, frame):
+    global NETLINK_LOOP
+    if NETLINK_LOOP:
+        NETLINK_LOOP = False
+    else:
+        exit(0)
 
 
 def cleanup_sock():
@@ -153,7 +166,11 @@ def do_figure(output_path: str, diffs: dict, cumulative=True):
         if len(diffs[host]) < 10:
             continue
         time_diff = diffs[host]
-        ip = arp_table[host]
+        try:
+            ip = arp_table[host]
+        except KeyError:
+            print(f'{host} not in arp table...')
+            continue
         print(f'host: {ip}, packets: {len(time_diff)}')
         ax1.hist(time_diff, bins='auto', density=True,
                  cumulative=cumulative, label=ip, histtype='step',
@@ -178,7 +195,7 @@ def save_output(path, raw_output):
 
 
 def do_netlink(subtitle):
-    global sock, epoll
+    global sock, epoll, NETLINK_LOOP
     sock = socket.socket(socket.AF_NETLINK,
                          socket.SOCK_RAW, NETLINK_NEMS_ATH9K)
     sock.bind((0, 0))
@@ -190,8 +207,11 @@ def do_netlink(subtitle):
     epoll = select.epoll()
     epoll.register(sock.fileno(), select.EPOLLIN)
     output = []
+
+    NETLINK_LOOP = True
+    signal.signal(signal.SIGINT, ctrl_c_signal_handler)
     try:
-        while True:
+        while NETLINK_LOOP:
             events = epoll.poll(timeout=TIMEOUT)
             if not events:
                 break
@@ -224,15 +244,17 @@ def draw_figure_from_input(inputs, output_path):
     output_texts = {}
     for i in inputs:
         with open(i) as f:
+            print(i)
             diffs = calculate_diffs(f.read().strip().split('\n'))['enq']
-        host = 'd4:6e:0e:65:aa:74'
+        host = '24:18:1d:71:71:c8'
         time_diff = diffs[host]
         ip = arp_table[host]
         ax1.hist(time_diff, bins='auto', density=True,
                  cumulative=True, label=i, histtype='step')
 
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        texts = '\n'.join([i[i.find('MCS'):i.find('_Bulk')]] + get_result_text(ip, time_diff))
+        texts = '\n'.join([i] + get_result_text(ip, time_diff))
+        #texts = '\n'.join([i[i.find('MCS'):i.find('_Bulk')] + f'_{len(i)}'] + get_result_text(ip, time_diff))
         output_texts[i] = texts
 
     for index, i in enumerate(sorted(list(output_texts.keys()))):
@@ -265,11 +287,13 @@ def main(subtitle, hosts):
 def get_parser():
     parser = argparse.ArgumentParser(description='Measure tx/ack via netlink')
     parser.add_argument('--host', type=str, nargs='+')
-    parser.add_argument('--title', type=str)
+    parser.add_argument('--subtitle', type=str)
     parser.add_argument('--time', default=30)
 
     parser.add_argument('--input', type=str, nargs='+')
     parser.add_argument('--output', type=str)
+
+    parser.add_argument('--netlink', default=False, action='store_true')
     return parser
 
 
@@ -278,5 +302,7 @@ if __name__ == '__main__':
 
     if args.input:
         draw_figure_from_input(args.input, args.output)
+    elif args.netlink and args.subtitle:
+        do_netlink(args.subtitle)
     else:
-        main(args.title, args.host)
+        main(args.subtitle, args.host)
