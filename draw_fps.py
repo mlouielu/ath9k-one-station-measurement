@@ -26,7 +26,9 @@ def draw(filename):
     bandwidth = [i[2] for i in data[:-3]]
 
     ax1.plot(timestamps, fps, 'r')
+    ax1.set_title(filename)
     ax1.set_xlabel('time (s)')
+    ax1.set_xlim(0, 35)
     ax1.set_ylabel('fps')
     ax1.set_ylim(0, 80)
 

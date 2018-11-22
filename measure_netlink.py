@@ -1,6 +1,8 @@
 #!/usr/bin/pypy3
 import argparse
 import atexit
+import glob
+import json
 import re
 import socket
 import subprocess
@@ -117,8 +119,16 @@ def calculate_diffs(output: list):
     return diff_timestamps
 
 
+def ping_them():
+    subprocess.Popen(['ping', '192.168.5.91', '-c', '1'], stdout=subprocess.DEVNULL)
+    subprocess.Popen(['ping', '192.168.5.42', '-c', '1'], stdout=subprocess.DEVNULL)
+    subprocess.Popen(['ping', '192.168.5.43', '-c', '1'],
+                     stdout=subprocess.DEVNULL).communicate()
+
+
 def get_arp_table():
     arp_table = {}
+    ping_them()
     output = subprocess.check_output(['arp', '-n']).decode('utf-8')
     for i in output.split('\n'):
         m = re.findall(arp_regex, i)
@@ -126,6 +136,9 @@ def get_arp_table():
             mac = list(filter(lambda x: ':' in x, m[1]))[0]
             ip = list(filter(lambda x: '.' in x, m[0]))[0]
             arp_table[mac] = ip
+
+    # Hardcode ARP
+    arp_table['24:18:1d:71:71:c8'] = '192.168.5.91'
     return arp_table
 
 
@@ -146,7 +159,18 @@ def get_result_text(ip, diff):
     return texts
 
 
-def do_figure(output_path: str, diffs: dict, cumulative=True):
+def get_iperf_result_from_files(prefix):
+    d = {}
+    for filename in glob.glob(f'{prefix}_iperf*'):
+        j = json.load(open(filename))
+        dst = j['start']['connecting_to']['host']
+        mbits_per_second = j['end']['sum_sent']['bits_per_second'] / 1024 / 1024
+        d[dst] = mbits_per_second
+
+    return d
+
+
+def do_figure(output_path: str, diffs: dict, cumulative=True, iperf_prefix=None):
     arp_table = get_arp_table()
     figure = plt.figure()
     ax1 = figure.add_subplot(211)
@@ -161,6 +185,7 @@ def do_figure(output_path: str, diffs: dict, cumulative=True):
         ax1.set_xlim((0, 50))
     #ax1.set_xticks([0, 10, 25, 50])
 
+    iperf_result = None if not iperf_prefix else get_iperf_result_from_files(iperf_prefix)
     ip_texts = {}
     for index, host in enumerate(diffs):
         if len(diffs[host]) < 10:
@@ -177,6 +202,8 @@ def do_figure(output_path: str, diffs: dict, cumulative=True):
                  color=COLOR_PATTLE[ip])
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
         texts = '\n'.join(get_result_text(ip, time_diff))
+        if iperf_result and ip in iperf_result:
+            texts += f'\niperf:  {iperf_result[ip]:.3f}Mb/s'
         ip_texts[ip] = texts
 
     for index, ip in enumerate(sorted(list(ip_texts.keys()))):
@@ -194,7 +221,7 @@ def save_output(path, raw_output):
             f.write(f'{i}\n')
 
 
-def do_netlink(subtitle):
+def do_netlink(subtitle, iperf=False):
     global sock, epoll, NETLINK_LOOP
     sock = socket.socket(socket.AF_NETLINK,
                          socket.SOCK_RAW, NETLINK_NEMS_ATH9K)
@@ -219,16 +246,20 @@ def do_netlink(subtitle):
                 if event & select.EPOLLIN:
                     b = sock.recvfrom(NETLINK_BUF_LENGTH)[0]
                     b = b[b.find(b'[') + 1: b.find(b']')].decode('utf-8')
-                    #print(b)
                     output.append(b)
     except socket.timeout:
         sock.close()
 
+    if iperf:
+        # Kill iperf so make sure we have logfile
+        subprocess.Popen(['sudo', 'pkill', '-2', 'iperf3']).communicate()
+
     diffs = calculate_diffs(output)
-    do_figure('enq_' + subtitle, diffs['enq'])
-    do_figure('tx_' + subtitle, diffs['tx'])
-    do_figure('aggr_' + subtitle, diffs['aggr'])
-    do_figure('now_' + subtitle, diffs['now'])
+    do_figure('enq_' + subtitle, diffs['enq'],
+              iperf_prefix=subtitle if iperf else None)
+    #do_figure('tx_' + subtitle, diffs['tx'])
+    #do_figure('aggr_' + subtitle, diffs['aggr'])
+    #do_figure('now_' + subtitle, diffs['now'])
     save_output('output_' + subtitle, output)
 
 
@@ -294,6 +325,7 @@ def get_parser():
     parser.add_argument('--output', type=str)
 
     parser.add_argument('--netlink', default=False, action='store_true')
+    parser.add_argument('--draw-iperf', default=False, action='store_true')
     return parser
 
 
@@ -303,6 +335,6 @@ if __name__ == '__main__':
     if args.input:
         draw_figure_from_input(args.input, args.output)
     elif args.netlink and args.subtitle:
-        do_netlink(args.subtitle)
+        do_netlink(args.subtitle, args.draw_iperf)
     else:
         main(args.subtitle, args.host)
