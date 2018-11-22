@@ -1,0 +1,12 @@
+[trinusvr]
+pid = '4972'
+address = "0x0273BB78"
+
+[cases]
+channel_width = [20, 40]
+image_quality = ["ultra"]
+compress_level = [0]
+bulk_flow = [3]
+priority_dscp = ["AC_BE"]
+loop = 1
+time = 30
