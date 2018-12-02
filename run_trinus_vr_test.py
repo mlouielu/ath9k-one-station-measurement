@@ -41,7 +41,7 @@ def run(args):
     iperf = subprocess.Popen(['./run_bulk_flow.sh',
                               str(args.iperf),
                               args.output])
-    
+
     print('[*] Start Netlink and FPS capture, ready to go')
     netlink = pexpect.spawn(' '.join(['sudo', 'python', './measure_netlink.py',
                              '--netlink', '--subtitle', args.output,
@@ -73,6 +73,26 @@ def run(args):
     subprocess.Popen(['./draw_latest_fps.py', args.output]).communicate()
 
 
+def run_with_all_iperf(args):
+    print('[*] Start iperf (if any)')
+    iperf = subprocess.Popen(['./run_bulk_flow_and_replace_vr.sh',
+                              str(args.iperf),
+                              args.output])
+    print('[*] Start Netlink capture, ready to go')
+    netlink = pexpect.spawn(' '.join(['sudo', 'python', './measure_netlink.py',
+                             '--netlink', '--subtitle', args.output,
+                             '--draw-iperf']))
+    time.sleep(args.time + 3)
+
+    print('[*] Done')
+    import os
+    subprocess.Popen(['sudo', 'kill', '-2', str(iperf.pid)]).communicate()
+    #os.system('sudo kill ' + str(iperf.pid))
+    #os.system('sudo pkill iperf3')
+    netlink.sendcontrol('c')
+    time.sleep(5)
+
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--pid', type=int)
@@ -80,10 +100,14 @@ def get_parser():
     parser.add_argument('--output', type=str)
     parser.add_argument('--time', type=int)
     parser.add_argument('--iperf', type=int)
+    parser.add_argument('--replace-vr', action='store_true', default=False)
     return parser
 
 
 if __name__ == '__main__':
     args = get_parser().parse_args()
 
-    run(args)
+    if args.replace_vr:
+        run_with_all_iperf(args)
+    else:
+        run(args)

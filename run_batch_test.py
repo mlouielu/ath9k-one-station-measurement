@@ -40,6 +40,22 @@ def set_priority_ac(ac):
                           '--set-dscp-class', 'cs7']).communicate()
 
 
+def run_batch_test_replace_vr_by_iperf(config):
+    for ac in config['cases']['priority_dscp']:
+        set_priority_ac(ac)
+        for bulk_flow in config['cases']['bulk_flow']:
+            for loop in range(config['cases']['loop']):
+                filename = f'batch_vr_replace_by_iperf_{ac}_bulk_{bulk_flow}_{loop}'
+                print('[*] Start the test')
+                subprocess.Popen(['./run_trinus_vr_test.py',
+                                  '--pid', config['trinusvr']['pid'],
+                                  '--address', config['trinusvr']['address'],
+                                  '--output', filename,
+                                  '--iperf', str(bulk_flow),
+                                  '--replace-vr',
+                                  '--time', str(config['cases']['time'])]).communicate()
+
+
 def run_batch_test(config):
     for ac in config['cases']['priority_dscp']:
         set_priority_ac(ac)
@@ -75,4 +91,7 @@ if __name__ == '__main__':
     with open(config_filename) as f:
         config = tomlkit.parse(f.read())
 
-    run_batch_test(config)
+    if not config['cases']['replace_vr_by_iperf']:
+        run_batch_test(config)
+    else:
+        run_batch_test_replace_vr_by_iperf(config)
