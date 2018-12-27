@@ -56,7 +56,8 @@ def run(args):
     os.system('sudo kill ' + str(iperf.pid))
     os.system('sudo pkill iperf3')
     netlink.sendcontrol('c')
-    time.sleep(6)
+    time.sleep(8)
+    print(netlink.read())
 
     # print('[*] Cleanup, closing DiRT')
     # while True:
@@ -87,7 +88,7 @@ def run_with_all_iperf(args):
     print('[*] Done')
     import os
     subprocess.Popen(['sudo', 'kill', '-2', str(iperf.pid)]).communicate()
-    #os.system('sudo kill ' + str(iperf.pid))
+    os.system('sudo kill ' + str(iperf.pid))
     #os.system('sudo pkill iperf3')
     netlink.sendcontrol('c')
     time.sleep(5)

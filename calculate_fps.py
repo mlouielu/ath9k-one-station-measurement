@@ -1,7 +1,6 @@
 import sys
 import statistics
 import glob
-import pprint
 
 
 def get_data(lines):
@@ -47,7 +46,10 @@ def main(files):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        files = sys.argv[1:]
+        directory = sys.argv[1:]
+        for d in directory:
+            files = glob.glob(f'{d.strip("/")}/*.txt')
+            main(files)
     else:
         files = glob.glob('*.txt')
-    main(files)
+        main(files)

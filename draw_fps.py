@@ -28,14 +28,14 @@ def draw(filename):
     ax1.plot(timestamps, fps, 'r')
     ax1.set_title(filename)
     ax1.set_xlabel('time (s)')
-    ax1.set_xlim(0, 35)
+    ax1.set_xlim(0, 40)
     ax1.set_ylabel('fps')
     ax1.set_ylim(0, 80)
 
     ax2 = ax1.twinx()
     ax2.plot(timestamps, bandwidth, 'b--')
     ax2.set_ylabel('Bandwidth (Mbit/s)')
-    ax2.set_ylim(0, 100)
+    ax2.set_ylim(0, 140)
 
     fig.tight_layout()
     plt.savefig(f'{os.path.splitext(filename)[0]}.png')

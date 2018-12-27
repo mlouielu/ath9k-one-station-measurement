@@ -1,6 +1,7 @@
 #!/usr/bin/pypy3
 import argparse
 import atexit
+import ctypes
 import glob
 import json
 import re
@@ -17,6 +18,15 @@ from concurrent.futures import ProcessPoolExecutor
 from matplotlib.font_manager import FontProperties
 from matplotlib import pyplot as plt
 
+
+# Station MAC 2 IP
+STA_MAC_2_IP = {
+    '24:18:1d:71:71:c8': '192.168.5.91',
+    'd4:6e:0e:65:aa:74': '192.168.5.41',
+    'd4:6e:0e:65:a9:ff': '192.168.5.42',
+    'd4:6e:0e:65:ac:a2': '192.168.5.43',
+    'ec:08:6b:2c:95:8f': '192.168.5.44',
+}
 
 # Netlink Settings
 NETLINK_NEMS_ATH9K = 31
@@ -81,6 +91,10 @@ def check_if_exist(path, sub, prefix=None):
     return f'{path}_{counter}'
 
 
+def codel_time_to_us(val):
+    return ctypes.c_uint32(ctypes.c_uint64(ctypes.c_uint64(val).value << 10).value // 1000).value
+
+
 def calculate_diffs(output: list):
     enq_timestamps = defaultdict(dict)
     tx_timestamps = defaultdict(dict)
@@ -93,24 +107,24 @@ def calculate_diffs(output: list):
         addr, seqno, timestamp, mode = i.split('|')
         if mode == 'hit1':
             round = int(seqno)
-            now = int(timestamp)
+            now = codel_time_to_us(int(timestamp))
             diff_timestamps['now'][addr].append(now / 1000)
         elif mode == 'hit2':
             left = int(seqno)
-            slot_left = int(timestamp)
+            slot_left = codel_time_to_us(int(timestamp))
         elif mode == 'enq':
-            enq_timestamps[addr][seqno] = int(timestamp)
+            enq_timestamps[addr][seqno] = codel_time_to_us(int(timestamp))
         elif mode == 'wake':
-            wake_timestamps[addr][seqno] = int(timestamp)
+            wake_timestamps[addr][seqno] = codel_time_to_us(int(timestamp))
         elif mode == 'aggr':
-            aggr_timestamps[addr][seqno] = int(timestamp)
+            aggr_timestamps[addr][seqno] = codel_time_to_us(int(timestamp))
             if seqno in wake_timestamps[addr]:
                 diff_timestamps['aggr'][addr].append(
                     (aggr_timestamps[addr][seqno] - wake_timestamps[addr][seqno]) / 1000)
         elif mode == 'tx':
-            tx_timestamps[addr][seqno] = int(timestamp)
+            tx_timestamps[addr][seqno] = codel_time_to_us(int(timestamp))
         elif mode == 'ack':
-            ack_timestamps[addr][seqno] = int(timestamp)
+            ack_timestamps[addr][seqno] = codel_time_to_us(int(timestamp))
             if seqno in enq_timestamps[addr]:
                 diff_timestamps['enq'][addr].append(
                    (ack_timestamps[addr][seqno] - enq_timestamps[addr][seqno]) / 1000)
@@ -264,7 +278,14 @@ def do_netlink(subtitle, iperf=False):
     save_output('output_' + subtitle, output)
 
 
-def draw_figure_from_input(inputs, output_path):
+def draw_figure_from_input(input, output, subtitle=None):
+    with open(input[0]) as f:
+        diffs = calculate_diffs(f.read().strip().split('\n'))
+    do_figure('enq_' + output, diffs['enq'],
+              iperf_prefix=subtitle)
+
+
+def draw_figure_from_input_only_target(inputs, output_path):
     arp_table = get_arp_table()
     figure = plt.figure(figsize=(10, 10))
     ax1 = figure.add_subplot(211)
@@ -334,7 +355,7 @@ if __name__ == '__main__':
     args = get_parser().parse_args()
 
     if args.input:
-        draw_figure_from_input(args.input, args.output)
+        draw_figure_from_input(args.input, args.output, args.subtitle)
     elif args.netlink and args.subtitle:
         do_netlink(args.subtitle, args.draw_iperf)
     else:

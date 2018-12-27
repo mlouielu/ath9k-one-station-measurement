@@ -1,13 +1,23 @@
 [trinusvr]
-pid = '17084'
-address = "0x0261AC78"
+pid = '12588'
+address = "0x2a8c9e8"
 
 [cases]
 channel_width = [20, 40]
 image_quality = ["ultra"]
 compress_level = [0]
 bulk_flow = [3]
-priority_dscp = ["AC_BE"]
-loop = 5
+priority_dscp = ["AC_VI"]
+loop = 3
 time = 30
-replace_vr_by_iperf = true
+replace_vr_by_iperf = false
+
+[environment]
+airtime_quantum_low = [100]
+airtime_quantum_high = [100, 150, 200, 300, 500, 750]
+airtime_same = false
+resptime = [0, 1]
+atf = [0]
+ia = [0]
+skip_exist = true
+no = 0
